@@ -1,0 +1,59 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Setup Golang with cache
+        uses: actions/setup-go@v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: TidyTree
+        run: if [ "$(go mod tidy && git diff | wc -l)" -gt 0 ]; then exit 1; fi
+
+      - name: Format
+        run: if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Vet
+        run: go vet -v ./...
+
+      - name: Install sqlclosecheck
+        # TODO revert to github.com/ryanrolds/sqlclosecheck when https://github.com/ryanrolds/sqlclosecheck/pull/47 is merged
+        run: go install github.com/LeMikaelF/sqlclosecheck@b53ecaccb94623dfa6050e4ada4eeecd3a130829
+
+      - name: sqlclosecheck
+        run: go vet -vettool=${HOME}/go/bin/sqlclosecheck ./...
+
+      - name: Staticcheck
+        uses: dominikh/staticcheck-action@v1.4.1
+        with:
+          version: "2025.1.1"
+          build-tags: "preview"
+          install-go: false
+
+      - name: Test
+        run: go test -v ./...
+
+      - name: Build Turso binary
+        run: go build -o turso cmd/turso/main.go

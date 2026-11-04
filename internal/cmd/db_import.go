@@ -1,0 +1,67 @@
+package cmd
+
+import (
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/cobra"
+)
+
+var importTursoDBFlag bool
+
+func init() {
+	dbCmd.AddCommand(importCmd)
+	addGroupFlag(importCmd)
+	addRemoteEncryptionKeyFlag(importCmd)
+	addRemoteEncryptionCipherFlag(importCmd)
+	importCmd.Flags().BoolVar(&importTursoDBFlag, "tursodb", false, "Import into a TursoDB (MVCC) database.")
+}
+
+var importCmd = &cobra.Command{
+	Use:               "import [filename]",
+	Short:             "Import a SQLite database file to Turso.",
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: noFilesArg,
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		return nil
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cmd.SilenceUsage = true
+		if len(args) == 0 {
+			return errors.New("filename is required: 'turso db import <filename>'")
+		}
+		filename := args[0]
+
+		if err := checkFileExists(filename); err != nil {
+			return err
+		}
+		locked, err := isFileLocked(filename)
+		if err != nil {
+			return fmt.Errorf("could not check file lock: %w", err)
+		}
+		if locked {
+			return errors.New("database file is locked by another process (close any open connections and try again)")
+		}
+
+		fromFileFlag = filename
+		tursoDBFlag = importTursoDBFlag
+		name := sanitizeDatabaseName(filename)
+		return CreateDatabase(name)
+	},
+}
+
+// Sanitize a SQLite database filename to be used as a cloud database name.
+func sanitizeDatabaseName(filename string) string {
+	base := filepath.Base(filename)
+
+	extensions := []string{".db", ".sqlite", ".sqlite3", ".sl3", ".s3db", ".db3"}
+	for _, ext := range extensions {
+		if strings.HasSuffix(strings.ToLower(base), ext) {
+			return base[:len(base)-len(ext)]
+		}
+	}
+
+	return base
+}
